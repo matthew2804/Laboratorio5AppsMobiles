@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:moviles_auth/components/error_message.dart';
 import 'package:moviles_auth/components/primary_button.dart';
 import 'package:moviles_auth/components/profile_field.dart';
+import 'package:moviles_auth/features/home/ui/bloc/home_bloc.dart';
 import 'package:moviles_auth/theme/app_theme.dart';
 
 /// Shows the profile of the signed in user and lets them sign out.
@@ -12,17 +15,31 @@ class HomeScreen extends StatelessWidget {
 
   const HomeScreen({
     super.key,
-    this.username = 'usuario',
-    this.fullName = 'Nombre Apellido',
-    this.email = 'correo@ejemplo.com',
+    required this.username,
+    required this.fullName,
+    required this.email,
   });
 
   void _signOut(BuildContext context) {
-    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+    context.read<HomeBloc>().add(const SignOutRequested());
+  }
+
+  void _onStateChanged(BuildContext context, HomeState state) {
+    if (state.status == HomeStatus.signedOut) {
+      Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    return BlocListener<HomeBloc, HomeState>(
+      listenWhen: (previous, current) => previous.status != current.status,
+      listener: _onStateChanged,
+      child: _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Perfil')),
       body: SafeArea(
@@ -80,9 +97,27 @@ class HomeScreen extends StatelessWidget {
                 value: email,
               ),
               const SizedBox(height: 32),
-              PrimaryButton(
-                label: 'Cerrar sesión',
-                onPressed: () => _signOut(context),
+              BlocBuilder<HomeBloc, HomeState>(
+                builder: (context, state) {
+                  final errorMessage = state.status == HomeStatus.failure
+                      ? state.errorMessage
+                      : null;
+                  return Column(
+                    children: [
+                      if (errorMessage != null) ...[
+                        ErrorMessage(message: errorMessage),
+                        const SizedBox(height: 16),
+                      ],
+                      PrimaryButton(
+                        label: 'Cerrar sesión',
+                        isLoading:
+                            state.status == HomeStatus.loading ||
+                            state.status == HomeStatus.signedOut,
+                        onPressed: () => _signOut(context),
+                      ),
+                    ],
+                  );
+                },
               ),
             ],
           ),

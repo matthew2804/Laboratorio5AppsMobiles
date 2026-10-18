@@ -15,13 +15,16 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
   final _usernameController = TextEditingController();
   final _fullNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  bool _isLoading = false;
-  String? _errorMessage;
+
+  /// Error found by the form itself, before anything is sent to the bloc.
+  String? _validationError;
 
   @override
   void dispose() {
@@ -33,41 +36,63 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _showError(String message) {
-    setState(() {
-      _isLoading = false;
-      _errorMessage = message;
-    });
+  String? _validate({
+    required String username,
+    required String fullName,
+    required String email,
+    required String password,
+  }) {
+    if (username.isEmpty ||
+        fullName.isEmpty ||
+        email.isEmpty ||
+        password.isEmpty ||
+        _confirmPasswordController.text.isEmpty) {
+      return 'Completa todos los campos';
+    }
+    if (!_emailPattern.hasMatch(email)) {
+      return 'Escribe un correo válido';
+    }
+    if (password.length < 6) {
+      return 'La contraseña debe tener al menos 6 caracteres';
+    }
+    if (password != _confirmPasswordController.text) {
+      return 'Las contraseñas no coinciden';
+    }
+    return null;
   }
 
   void _submit() {
+    final bloc = context.read<RegisterBloc>();
+    if (bloc.state.status == RegisterStatus.loading) return;
+
     final username = _usernameController.text.trim();
     final fullName = _fullNameController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text;
-    if (username.isEmpty ||
-        fullName.isEmpty ||
-        email.isEmpty ||
-        password.isEmpty) {
-      _showError('Completa todos los campos');
-      return;
-    }
-    if (password != _confirmPasswordController.text) {
-      _showError('Las contraseñas no coinciden');
-      return;
-    }
+    final error = _validate(
+      username: username,
+      fullName: fullName,
+      email: email,
+      password: password,
+    );
+    setState(() => _validationError = error);
+    if (error != null) return;
 
-    //Romper app para incluir el Registro
-    context.read<RegisterBloc>().add(
-      OnRegisterSubmittedEvent(
-        fullName: fullName,
+    bloc.add(
+      RegisterSubmitted(
         username: username,
+        fullName: fullName,
         email: email,
         password: password,
       ),
     );
+  }
 
-    //Navigator.pushReplacementNamed(context, '/home');
+  void _onStateChanged(BuildContext context, RegisterState state) {
+    final session = state.session;
+    if (state.status == RegisterStatus.success && session != null) {
+      Navigator.pushReplacementNamed(context, '/home', arguments: session);
+    }
   }
 
   @override
@@ -78,29 +103,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: BlocListener<RegisterBloc, RegisterState>(
-            listener: (context, state) {
-              if (state is RegisterSuccessState) {
-                Navigator.pushReplacementNamed(context, '/home');
-              }
-            },
+            listenWhen: (previous, current) =>
+                previous.status != current.status,
+            listener: _onStateChanged,
             child: BlocBuilder<RegisterBloc, RegisterState>(
               builder: (context, state) {
-                if (state is RegisterIdleState) {
-                  return registerForm();
-                } else if (state is RegisterLoadingState) {
-                  return Column(
-                    children: [
-                      Text("Espere mientras tanto"),
-                      CircularProgressIndicator(),
-                    ],
-                  );
-                } else if (state is RegisterSuccessState) {
-                  return SizedBox.shrink();
-                } else if (state is RegisterErrorState) {
-                  return Text("Error ${state.errorMessage}");
-                } else {
-                  return registerForm();
-                }
+                final isLoading =
+                    state.status == RegisterStatus.loading ||
+                    state.status == RegisterStatus.success;
+                final errorMessage =
+                    _validationError ??
+                    (state.status == RegisterStatus.failure
+                        ? state.errorMessage
+                        : null);
+                return _buildForm(
+                  isLoading: isLoading,
+                  errorMessage: errorMessage,
+                );
               },
             ),
           ),
@@ -109,7 +128,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget registerForm() {
+  Widget _buildForm({required bool isLoading, String? errorMessage}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -129,6 +148,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SizedBox(height: 32),
         TextField(
           controller: _usernameController,
+          enabled: !isLoading,
           autocorrect: false,
           decoration: const InputDecoration(
             labelText: 'Nombre de usuario',
@@ -138,6 +158,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SizedBox(height: 16),
         TextField(
           controller: _fullNameController,
+          enabled: !isLoading,
           textCapitalization: TextCapitalization.words,
           decoration: const InputDecoration(
             labelText: 'Nombre completo',
@@ -147,6 +168,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SizedBox(height: 16),
         TextField(
           controller: _emailController,
+          enabled: !isLoading,
           keyboardType: TextInputType.emailAddress,
           autocorrect: false,
           decoration: const InputDecoration(
@@ -157,6 +179,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SizedBox(height: 16),
         TextField(
           controller: _passwordController,
+          enabled: !isLoading,
           obscureText: true,
           decoration: const InputDecoration(
             labelText: 'Contraseña',
@@ -166,6 +189,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SizedBox(height: 16),
         TextField(
           controller: _confirmPasswordController,
+          enabled: !isLoading,
           obscureText: true,
           decoration: const InputDecoration(
             labelText: 'Confirmar contraseña',
@@ -173,19 +197,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        if (_errorMessage != null) ...[
-          ErrorMessage(message: _errorMessage!),
+        if (errorMessage != null) ...[
+          ErrorMessage(message: errorMessage),
           const SizedBox(height: 16),
         ],
         PrimaryButton(
           label: 'Registrarme',
-          isLoading: _isLoading,
+          isLoading: isLoading,
           onPressed: _submit,
         ),
         const SizedBox(height: 8),
         Center(
           child: TextButton(
-            onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+            onPressed: isLoading
+                ? null
+                : () => Navigator.pushReplacementNamed(context, '/login'),
             child: const Text('¿Ya tienes cuenta? Inicia sesión'),
           ),
         ),

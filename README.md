@@ -6,8 +6,14 @@ Proyecto base para el **Laboratorio 5: Flujo de login**. Trae las tres pantallas
 
 ```bash
 flutter pub get
-flutter run
+# Una sola vez: copia la plantilla y escribe la URL y la publishable key
+cp config/supabase.example.json config/supabase.json
+flutter run --dart-define-from-file=config/supabase.json
 ```
+
+`config/supabase.json` está en `.gitignore`. En VS Code, la configuración
+`moviles_auth (Supabase)` de `.vscode/launch.json` ya pasa ese archivo.
+Detalles en `GUIA_PRUEBAS_LABORATORIO_5.md` e `INFORME_LABORATORIO_5.md`.
 
 `flutter_bloc` y `supabase_flutter` ya están en el `pubspec.yaml`.
 

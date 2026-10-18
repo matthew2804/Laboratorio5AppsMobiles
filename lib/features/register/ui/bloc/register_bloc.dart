@@ -1,66 +1,56 @@
-// Eventos que recibo
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-abstract class RegisterEvent {}
+import 'package:moviles_auth/features/auth/domain/failures/auth_failure.dart';
+import 'package:moviles_auth/features/auth/domain/usecases/sign_up_usecase.dart';
+import 'package:moviles_auth/features/register/ui/bloc/register_event.dart';
+import 'package:moviles_auth/features/register/ui/bloc/register_state.dart';
 
-class OnRegisterSubmittedEvent extends RegisterEvent {
-  final String fullName;
-  final String username;
-  final String email;
-  final String password;
-
-  OnRegisterSubmittedEvent({
-    required this.fullName,
-    required this.username,
-    required this.email,
-    required this.password,
-  });
-}
-
-// Estados que emito
-abstract class RegisterState {}
-
-class RegisterIdleState extends RegisterState {}
-
-class RegisterLoadingState extends RegisterState {}
-
-class RegisterErrorState extends RegisterState {
-  final String errorMessage;
-  RegisterErrorState({required this.errorMessage});
-}
-
-class RegisterSuccessState extends RegisterState {}
-
-// La clase Bloc
+export 'package:moviles_auth/features/register/ui/bloc/register_event.dart';
+export 'package:moviles_auth/features/register/ui/bloc/register_state.dart';
 
 class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
-  RegisterBloc() : super(RegisterIdleState()) {
-    on<OnRegisterSubmittedEvent>(register);
+  final SignUpUseCase signUpUseCase;
+
+  RegisterBloc({required this.signUpUseCase}) : super(const RegisterState()) {
+    on<RegisterSubmitted>(_onSubmitted);
   }
 
-  Future<void> register(
-    OnRegisterSubmittedEvent event,
+  Future<void> _onSubmitted(
+    RegisterSubmitted event,
     Emitter<RegisterState> emit,
   ) async {
-    emit(RegisterLoadingState());
-    //Registro, tengo que llamarlo desde un caso de uso
+    // A second submit while the first one is running is ignored.
+    if (state.status == RegisterStatus.loading) return;
+
+    emit(state.copyWith(status: RegisterStatus.loading, clearError: true));
     try {
-      //1. Auth
-      AuthResponse response = await Supabase.instance.client.auth.signUp(
+      final session = await signUpUseCase(
+        username: event.username,
+        fullName: event.fullName,
         email: event.email,
         password: event.password,
       );
-      //2. DB
-      await Supabase.instance.client.from('profiles').insert({
-        'id': response.user?.id,
-        'username': event.username,
-        'full_name': event.fullName,
-        'email': event.email,
-      });
-      emit(RegisterSuccessState());
-    } on Exception catch (e) {
-      emit(RegisterErrorState(errorMessage: e.toString()));
+      emit(
+        RegisterState(
+          status: RegisterStatus.success,
+          profile: session.profile,
+          user: session.user,
+        ),
+      );
+    } on AuthFailure catch (failure) {
+      emit(
+        RegisterState(
+          status: RegisterStatus.failure,
+          errorMessage: failure.message,
+        ),
+      );
+    } catch (_) {
+      emit(
+        RegisterState(
+          status: RegisterStatus.failure,
+          errorMessage: const UnexpectedFailure().message,
+        ),
+      );
     }
   }
 }
